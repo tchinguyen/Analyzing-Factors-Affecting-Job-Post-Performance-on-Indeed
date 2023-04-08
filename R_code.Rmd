@@ -1,0 +1,314 @@
+---
+title: "STATS140XP Final Project Report Appendix"
+author: "The I-Lew-minating Seven"
+date: "2022-11-29"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+```{r eda}
+# exploratory data analysis
+datafest <- read.csv("datafest2018-Updated-April12.csv", stringsAsFactors = TRUE,
+                     na.strings=c("","NA")
+)
+
+## missing values ##
+sum(is.na(datafest))
+
+# remove missing values
+datafest.na <- na.omit(datafest)
+
+# check size and predictors
+dim(datafest) # pre-removal - 14586035 obs, 23 variables
+dim(datafest.na) # post-removal - 66704 obs, 23 variables
+str(datafest.na) 
+
+head(datafest.na) # first 6 obs of data
+
+# remove companyId, jobId
+datafest.na <- datafest.na[, -which(colnames(datafest.na) %in% 
+                                      c("companyId", "jobId"))] 
+```
+
+```{r multicollinearity}
+# correlation plot
+library(corrplot)
+X <- model.matrix(~ avgOverallRating + numReviews + descriptionCharacterLength 
+                  + descriptionWordCount + experienceRequired+estimatedSalary 
+                  + supervisingJob + licenseRequiredJob + jobAgeDays 
+                  + localClicks + clicks - 1,
+                  data = datafest.na)
+contrast_corr <- cor(X)
+corrplot(contrast_corr,type = "full", addgrid.col = "gray", tl.col = "black", 
+         tl.srt = 90, method = "number", tl.cex = 0.733)
+
+# remove descriptionWordCount and localClicks based on high multicollinearity
+datafest.na <- datafest.na[, - which(colnames(datafest.na) %in% 
+                                       c("descriptionWordCount", "localClicks"))]
+```
+
+```{r plots}
+## relationship between predictors and clicks
+plot(clicks ~ date, data = datafest.na)
+plot(clicks ~ country, data = datafest.na)
+plot(clicks ~ stateProvince, data = datafest.na)
+plot(clicks ~ city, data = datafest.na)
+plot(clicks ~ avgOverallRating, data = datafest.na)
+plot(clicks ~ numReviews, data = datafest.na)
+plot(clicks ~ industry, data = datafest.na)
+plot(clicks ~ normTitle, data = datafest.na)
+plot(clicks ~ normTitleCategory, data = datafest.na)
+plot(clicks ~ descriptionCharacterLength, data = datafest.na)
+plot(clicks ~ experienceRequired, data = datafest.na)
+plot(clicks ~ estimatedSalary, data = datafest.na)
+plot(clicks ~ salaryCurrency, data = datafest.na)
+plot(clicks ~ jobLanguage, data = datafest.na)
+plot(clicks ~ supervisingJob, data = datafest.na)
+plot(clicks ~ licenseRequiredJob, data = datafest.na)
+plot(clicks ~ educationRequirements, data = datafest.na)
+plot(clicks ~ jobAgeDays, data = datafest.na)
+```
+
+```{r clicks}
+## investigate distribution of clicks
+hist(datafest.na$clicks, 
+     main = "Histogram of Original Clicks", 
+     xlab = "clicks")
+
+library(dplyr)
+summary(datafest.na$clicks)
+upper <- 12-1.5*(30-12)
+lower <- 30+1.5*(30-12)
+datafest.new <- datafest.na %>%
+  filter(clicks<=57) %>%
+  filter(clicks>=0)
+
+hist(datafest.new$clicks, 
+     main = "Histogram of Clicks (Outliers Removed)", 
+     xlab = "clicks")
+
+# drop unused levels
+for (i in seq_len(ncol(datafest.new))){
+  if (is.factor(datafest.new[, i])) {
+    datafest.new[, i] <- droplevels(datafest.new[, i])
+  }
+}
+```
+
+```{r variable_summary}
+# variable summary - name, type, number of levels for categorical 
+# (without removed variables)
+variable_names <- colnames(datafest.new)
+variable_type <- rep(NA, ncol(datafest.new))
+num_levels <- rep(NA, ncol(datafest.new))
+for (i in seq_len(ncol(datafest.new))){
+  if (is.numeric(datafest.new[, i]) | is.integer(datafest.new[, i])){
+    variable_type[i] <- "numeric"
+    num_levels[i] <- length(unique(datafest.new[, i]))
+  } else {
+    variable_type[i] <- "categorical"
+    num_levels[i] <- length(levels(datafest.new[, i]))
+  }
+}
+variable_summary <- data.frame(
+  variable = variable_names,
+  type = variable_type,
+  "number of levels" = num_levels
+)
+knitr::kable(variable_summary, "simple")
+
+# remove jobLanguage (only 1 factor - models won't work with predictors with 
+# only 1 level)
+datafest.new <- datafest.new[, - which(colnames(datafest.new) == "jobLanguage")]
+
+```
+
+```{r mutate_variables}
+library(tidyverse)
+library(stringr)
+# remove city, normTitle, industry
+datafest.new <- datafest.new[, - which(colnames(datafest.new) %in% 
+                                         c("city", "normTitle", "industry"))]
+
+## Group normTitleCategory based on the frequencies variables to 
+## create new normTitle variable
+normTitle_table <- as.data.frame(table(datafest.new$normTitleCategory))
+summary(normTitle_table)
+normTitle_table$Var1 <- as.character(normTitle_table$Var1)
+
+indice1 <- which(normTitle_table$Freq<=160)
+normtitle_level1 <- c()
+for(i in 1:length(indice1)){
+  normtitle_level1[i] <- normTitle_table[indice1[i],1]
+}
+
+indice2 <- which(normTitle_table$Freq>=160 & normTitle_table$Freq <= 439)
+normtitle_level2 <- c()
+for(i in 1:length(indice2)){
+  normtitle_level2[i] <- normTitle_table[indice2[i],1]
+}
+indice3 <- which(normTitle_table$Freq>=439 & normTitle_table$Freq <= 1061)
+normtitle_level3 <- c()
+for(i in 1:length(indice3)){
+  normtitle_level3[i] <- normTitle_table[indice3[i],1]
+}
+indice4 <- which(normTitle_table$Freq>=1061)
+normtitle_level4 <- c()
+for(i in 1:length(indice4)){
+  normtitle_level4[i] <- normTitle_table[indice4[i],1]
+}
+
+datafest.new <- datafest.new%>%
+  mutate(new_normTitleCategory = as.factor(case_when(normTitleCategory %in% normtitle_level1 ~ 1,
+                                                    normTitleCategory %in% normtitle_level2 ~ 2,
+                                                    normTitleCategory %in% normtitle_level3 ~ 3,
+                                                    normTitleCategory%in% normtitle_level4 ~ 4)))
+
+## Group stateProvince based on the frequencies variables to create new 
+## new_state_group variable
+state_table <- as.data.frame(table(datafest.new$stateProvince))
+summary(state_table)
+state_table$Var1 <- as.character(state_table$Var1)
+
+indice1 <- which(state_table$Freq <= 222)
+state_level1 <- c()
+for(i in 1:length(indice1)){
+  state_level1[i] <- state_table[indice1[i],1]
+}
+
+indice2 <- which(state_table$Freq>=222 & state_table$Freq <= 689)
+state_level2 <- c()
+for(i in 1:length(indice2)){
+  state_level2[i] <- state_table[indice2[i],1]
+}
+indice3 <- which(state_table$Freq>=689 & state_table$Freq <= 1346)
+state_level3 <- c()
+for(i in 1:length(indice3)){
+  state_level3[i] <- state_table[indice3[i],1]
+}
+indice4 <- which(state_table$Freq>=1346)
+state_level4 <- c()
+for(i in 1:length(indice4)){
+  state_level4[i] <- state_table[indice4[i],1]
+}
+
+datafest.new <- datafest.new %>%
+  mutate(new_state_group = as.factor(case_when(stateProvince %in% state_level1 ~ 1,
+                                              stateProvince%in% state_level2 ~ 2,
+                                              stateProvince%in% state_level3 ~ 3,
+                                              stateProvince  %in% state_level4 ~ 4)))
+
+#remove the old normTitleCategory and stateProvince
+datafest.new <- datafest.new[,-which(colnames(datafest.new) %in% 
+                                       c("normTitleCategory", "stateProvince"))]
+```
+
+```{r new_from_date}
+## new variables 
+# Create a new variable month based on variable date
+patter.month <- "\\b\\d{2}\\b"
+datafest.new$month <- as.factor(str_match(datafest.new$date, patter.month)) 
+
+# Create a new variable year based on variable date 
+patter.year <- "\\d{4}"
+datafest.new$year <- as.factor(str_match(datafest.new$date, patter.year))  
+
+# Create a new variable week days based on variable date 
+datafest.new$week_day <- as.factor(weekdays(as.Date(datafest.new$date)))  
+
+# drop the old date variable
+datafest.new <- datafest.new[,-which(colnames(datafest.new) == "date")] 
+```
+
+```{r new_variable_summmary}
+# variable summary - name, type, number of levels for categorical
+# without removed variables)
+variable_names <- colnames(datafest.new)
+variable_type <- rep(NA, ncol(datafest.new))
+num_levels <- rep(NA, ncol(datafest.new))
+for (i in seq_len(ncol(datafest.new))){
+  if (is.numeric(datafest.new[, i]) | is.integer(datafest.new[, i])){
+    variable_type[i] <- "numeric"
+    num_levels[i] <- length(unique(datafest.new[, i]))
+  } else {
+    variable_type[i] <- "categorical"
+    num_levels[i] <- length(levels(datafest.new[, i]))
+  }
+}
+variable_summary <- data.frame(
+  variable = variable_names,
+  type = variable_type,
+  "number of levels" = num_levels
+)
+knitr::kable(variable_summary, "simple")
+```
+
+```{r random_forest}
+#### Random forest ####
+set.seed(1)
+library(randomForest)
+
+test.i <- sample(1:66704,46693, replace = F)
+train.df <- datafest.new[-test.i,]
+test.df <- datafest.new[test.i,]
+
+model.rf <-randomForest(clicks~.,data = train.df, ntree = 100,importance = T,
+                       na.action = na.omit, mtry = 6) # 100 trees and split by 6
+model.rf 
+varImpPlot(model.rf)
+round(importance(model.rf), 2)
+```
+
+```{r boosting}
+#### 10-fold Cross-validation boosting ####
+library(gbm)
+set.seed (1)
+boost.datafest <-gbm(clicks~.,data = train.df , distribution = "gaussian",
+                   n.trees = 500, interaction.depth = 4, cv.folds = 10)
+summary(boost.datafest)
+```
+
+```{r lm_anova}
+### Using full dataset for the all steps below 
+
+lm.model.full <- lm(clicks~., data = datafest.new)# Fit the full model 
+
+## Top 10 important variables from randomforest model + clicks
+inp_var_i <- names(datafest.new)%in% c("clicks","descriptionCharacterLength", 
+                                       "jobAgeDays", "estimatedSalary", "month", 
+                                       "educationRequirements","new_normTitleCategory",
+                                       "avgOverallRating", "licenseRequiredJob", 
+                                       "experienceRequired", "numReviews") 
+
+datafest.final <- datafest.new[, inp_var_i]
+
+## Fit top 10 important variables using lm()
+lm.model.reduced <- lm(clicks ~ ., data = datafest.final) 
+summary(lm.model.reduced) 
+anova(lm.model.reduced) 
+
+# using ANOVA to test for 2 models (partial f-test)
+ano.model <- anova(lm.model.reduced, lm.model.full) 
+ano.model ## since p_value is small, we favor the reduced model.
+```
+
+```{r top5_plots}
+## plots for top five predictors##
+plot(clicks ~ jobAgeDays, data = datafest.new)
+abline(lm(clicks ~ jobAgeDays, data = datafest.new), col = "red")
+
+plot(clicks ~ descriptionCharacterLength, data = datafest.new)
+abline(lm(clicks ~ descriptionCharacterLength, data = datafest.new), col = "red")
+
+plot(clicks ~ month, data = datafest.new)
+
+plot(clicks ~ estimatedSalary, data = datafest.new)
+abline(lm(clicks ~ estimatedSalary, data = datafest.new), col = "red")
+
+plot(clicks ~ numReviews, data = datafest.new)
+abline(lm(clicks ~ numReviews, data = datafest.new), col = "red")
+```
+
